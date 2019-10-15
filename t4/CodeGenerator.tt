@@ -1,0 +1,84 @@
+<#@ template language="C#" debug="true" hostspecific="true" #>
+<#@ output extension=".ts" #>
+
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data" #>
+<#@ assembly name="System.Xml" #>
+<#@ assembly name="System.Runtime.InteropServices" #>
+
+<#@ import namespace="System.Collections" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+
+<#@ Include File="Core\DynamicJson.include" #>
+<#@ Include File="Core\DbConnectionRepository.include" #>
+<#@ Include File="Core\SchemaReader.sql.include" #>
+<#
+    // これが T4 で出力するためのWriter実体
+    StringBuilder writer =  GenerationEnvironment;
+    // 前回出力を全消し
+    writer.Clear();
+/*
+    // EnvDte系はVS Code だと役に立たない(´･ω･｀)
+    
+    var t = Type.GetTypeFromProgID("VisualStudio.DTE.16.0");
+    EnvDTE80.DTE2 dte = Activator.CreateInstance(t) as EnvDTE80.DTE2;
+
+    var serviceProvider = new Microsoft.VisualStudio.Shell.ServiceProvider((Microsoft.VisualStudio.OLE.Interop.IServiceProvider)dte.DTE);
+    var solution = dte.Solution;
+    var activeSolutionProjects = dte.ActiveSolutionProjects as System.Object[];
+*/
+
+    // var path = System.IO.Path.GetDirectoryName(dte.Solution.FullName);
+    var path = @"(VS Code の T4 から相対パスが取れない)CodeGenerator.json";
+    var dir = System.IO.Path.GetDirectoryName(path);
+    var json = File.ReadAllText(path);
+    var settings = DynamicJson.Parse(json);
+    // Sql-Server 
+    var sqlConnection = settings.SqlConnection;
+
+    if(!string.IsNullOrWhiteSpace(sqlConnection.ConnectionString)){
+        var s = GenerateModelBySql(sqlConnection.Provider,sqlConnection.ConnectionString);
+        writer.AppendLine(s);
+    }
+#>
+<#+
+public string GenerateModelBySql(string providerName, string connectionStrings){
+	using (var helper = DbConnectionRepository.CreateHelper(providerName, connectionStrings)){
+		helper.Open();
+
+		var catalog = helper.Fill(SqlCatalog);
+		var dic  = new Dictionary<string, (string Catalog, string Schema, string Name)>();
+		foreach(DataRow each in catalog.Rows){		
+			var catalogName = GetValue(each, "Catalog", "");
+			var schemaName = GetValue(each, "Schema", "");
+			var name = GetValue(each, "TableOrViewName", "");
+			var csName = string.Format("{0}.{1}.{2}.sql.ts", catalogName, schemaName, name);
+
+			dic[csName] = (catalogName, schemaName, name);		
+		}
+
+        var writer = new StringBuilder();
+		var schema = helper.Fill(SqlSchema);
+
+        writer.AppendLine("import { Entity, PrimaryGeneratedColumn, Column, BaseEntity } from 'typeorm'");
+		foreach(var each in dic){
+			var model = each.Value;            
+            writer.AppendLine(new SqlModelParser(schema, model.Catalog, model.Schema, model.Name).Generate());
+		}
+        return writer.ToString();
+    }	
+}
+static T GetValue<T>(DataRow row, string columnName, T defaultValue = default(T)){
+	var result = defaultValue;
+	try{
+		result = (T)row[columnName];
+	}
+	catch{
+		// error free
+	}
+	return result;
+}
+#>

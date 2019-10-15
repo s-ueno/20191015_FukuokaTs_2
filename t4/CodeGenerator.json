@@ -1,0 +1,16 @@
+{
+    "SqlConnection": {
+      "ConnectionString": "Server=(server);Initial Catalog=(DB);Persist Security Info=False;User ID=(id);Password=(pass);MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;",
+      "Provider": "System.Data.SqlClient"
+    },
+  
+    "SqlLiteConnection": {
+      "ConnectionString": "",
+      "Provider": "System.Data.SQLite"
+    },
+    "PosgresConnection": {
+      "ConnectionString": "",
+      "Provider": ""
+    }
+  }
+  

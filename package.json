@@ -1,0 +1,22 @@
+{
+  "name": "t4demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "test-orm": "./node_modules/.bin/ts-node src/index_orm.ts"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/typescript": "^2.0.0",
+    "typeorm": "^0.2.19",
+    "typescript": "^3.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^12.7.12",
+    "ts-node": "^8.4.1",
+    "tsc": "^1.20150623.0"
+  }
+}

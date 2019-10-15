@@ -1,0 +1,147 @@
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data" #>
+<#@ assembly name="System.Xml" #>
+<#@ assembly name="Microsoft.VisualStudio.Shell.Interop.8.0" #>
+<#@ assembly name="EnvDTE" #>
+<#@ assembly name="EnvDTE80" #>
+
+<#@ import namespace="System" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Data.Common" #>
+<#@ import namespace="EnvDTE" #>
+<#@ import namespace="Microsoft.VisualStudio.Shell.Interop" #>
+<#@ import namespace="Microsoft.VisualStudio.TextTemplating" #>
+<#+
+
+// The MIT License (MIT)
+// Copyright (c) 2018 uNE
+
+public static class DbConnectionRepository {
+    public static DbProviderFactory CreateDbProviderFactory(string providerName) {
+		if(providerName == "System.Data.SQLite"){
+		
+			var type = Type.GetType("System.Data.SQLite.SQLiteFactory, System.Data.SQLite");
+            var filed = type.GetField("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            var value = filed.GetValue(null);
+			return (DbProviderFactory)value;
+		
+//			return System.Data.SQLite.SQLiteFactory.Instance;
+		}
+        return DbProviderFactories.GetFactory(providerName);
+    }
+    public static DbConnectionHelper CreateHelper(string connectionStrings){
+        return CreateHelper("System.Data.SqlClient", connectionStrings);
+    }
+    public static DbConnectionHelper CreateHelper(string providerName, string connectionStrings){
+        var helper = new DbConnectionHelper();
+        helper.ProviderName = providerName;
+        helper.ConnectionStrings = connectionStrings;
+        return helper;
+    }
+}
+public class DbConnectionHelper : IDisposable
+{
+    public DbConnection DbConnection { get; private set; }
+    protected internal string ContextName { get; internal set; }
+    internal protected DbTransaction Transaction { get; private set; }
+
+    public string ProviderName { get; set;}
+    public string ConnectionStrings { get; set;}
+    public DbProviderFactory Factory { get; set;}
+    public void Open()
+    {
+        Factory = DbConnectionRepository.CreateDbProviderFactory(ProviderName);
+        DbConnection = Factory.CreateConnection();
+        DbConnection.ConnectionString = ConnectionStrings;
+        DbConnection.Open();
+    }
+    public DbDataAdapter CreateDataAdapter()
+    {
+        return Factory.CreateDataAdapter();
+    }
+
+    public int Fill(DataSet ds, DbCommand cmd){
+        var adapter = CreateDataAdapter();
+        adapter.SelectCommand = cmd;
+        return adapter.Fill(ds);
+    }
+    public int Fill(DataSet ds, string sql){            
+        var adapter = CreateDataAdapter();
+        int cnt = -1;
+        using (var cmd = CreateCommand()){
+            cmd.CommandText = sql;
+            cmd.Connection = DbConnection;
+            cmd.Transaction = Transaction;
+
+            adapter.SelectCommand = cmd;
+            cnt = adapter.Fill(ds);
+        }
+        return cnt;
+    }
+	public DataTable Fill(string sql){
+		var ds = new DataSet();        
+        using (var cmd = CreateCommand()){
+            cmd.CommandText = sql;
+            cmd.Connection = DbConnection;
+            cmd.Transaction = Transaction;
+
+			var adapter = CreateDataAdapter();
+            adapter.SelectCommand = cmd;
+            adapter.Fill(ds);
+        }		
+		return ds.Tables[0];
+	}
+
+    public void BeginTransaction(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+    {
+        Transaction = DbConnection.BeginTransaction(isolationLevel);
+    }
+    public void Commit()
+    {
+        Transaction.Commit();
+    }
+    public void Rollback()
+    {
+        Transaction.Rollback();
+    }
+    public void Close()
+    {
+        if (closed) return;
+
+        if (Transaction != null)
+        {
+            Transaction.Dispose();
+            Transaction = null;
+        }
+        if (DbConnection != null)
+            DbConnection.Close();
+        closed = true;
+    }
+    bool closed = false;
+    public DbCommand CreateCommand()
+    {
+        return DbConnection.CreateCommand();
+    }
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposed)
+            return;
+
+        if (disposing)
+        {
+            Close();
+        }
+        disposed = true;
+    }
+    bool disposed = false;
+}
+#>

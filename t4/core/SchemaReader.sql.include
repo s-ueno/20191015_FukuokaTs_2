@@ -1,0 +1,266 @@
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data" #>
+<#@ assembly name="System.Xml" #>
+<#@ assembly name="Microsoft.VisualStudio.Shell.Interop.8.0" #>
+<#@ assembly name="EnvDTE" #>
+<#@ assembly name="EnvDTE80" #>
+
+<#@ import namespace="System" #>
+<#@ import namespace="System.Collections" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Data" #>
+
+<#+
+
+public class SqlModelParser{
+    public SqlModelParser(DataTable schema, string catalogName, string schemaName, string name){
+        this.Table = schema;
+        this.Catalog = catalogName;
+        this.Schema = schemaName;
+        this.Name = name;
+        this.SafeName = SafeString(name);
+    }
+    public DataTable Table {get; private set;}
+    public string Catalog {get; private set;}
+    public string Schema {get; private set;}
+    public string Name {get; private set;}
+    public string SafeName {get; private set;}
+
+    public string Generate(){
+        var sb = new StringBuilder();
+        sb.AppendLine("");
+		sb.AppendLine($"    @Entity(\"[{Catalog}].[{Schema}].[{Name}]\")");
+        sb.AppendLine($"    export class {SafeName} /* extends BaseEntity */ {{");
+
+        var rows = GetSchema();
+        var idx = 10;
+
+        // プロパティの出力リスト
+        var propList = new StringBuilder();
+        // constの出力リスト
+        var constList = new StringBuilder();
+        // FWのカラムリスト
+        var columnList = new StringBuilder();
+
+        foreach(var each in rows){
+            var cName = GetValue(each, "ColumnName", "");
+            var safeCName = SafeString(cName);
+			if (SafeName == safeCName) 
+				safeCName = $"{safeCName}_";
+			
+
+            var charLength = GetValue<int?>(each, "CharLength");
+            var type = GetValue(each, "DataType", "");
+            var isPrimary = GetValue(each, "IsPrimary", 0) == 0 ? "false" : "true";
+            var isIdentityColumn = GetValue(each, "IsIdentityColumn", 0) == 0 ? false : true;
+            var isNullable = GetValue(each, "IsNullable", 0) == 0 ? false : true;
+            var csharpType = ParseCSharpType(type);
+            var tsTypeString = ParseTsType(type);
+            var csharpTypeString = isNullable ? $"{csharpType.FullName}?" : csharpType.FullName;
+
+            if (charLength == null){
+                propList.AppendLine($"        /** {safeCName}({type}) */");
+                charLength = -1;
+            } else {
+                propList.AppendLine($"        /** {safeCName}({type}, {charLength}) */");
+            }
+
+            idx += 10;
+            if(isPrimary == "true"){
+                propList.AppendLine($"        @PrimaryGeneratedColumn({{ name:\"{cName}\" }})");
+            } else{
+                propList.AppendLine($"        @Column(\"{cName}\")");
+            }
+
+            propList.AppendLine($"        public {safeCName}?: {tsTypeString};");         
+        }
+
+        // プロパティ生成
+        sb.AppendLine(propList.ToString());
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    protected Type ParseCSharpType(string dbType){
+            switch (dbType)
+            {
+                case "text":
+                case "ntext":
+                case "char":
+                case "nchar":
+                case "varchar":
+                case "nvarchar":
+                    return typeof(string);
+                case "decimal":
+                case "money":
+                case "numeric":
+                case "smallmoney":
+                    return typeof(decimal);
+                case "int":
+                    return typeof(Int32);
+                case "smallint":
+                    return typeof(Int16);
+                case "bigint":
+                    return typeof(Int64);
+                case "binary":
+                case "varbinary":
+                case "image":
+                case "rowversion":
+                case "timestamp":
+                case "bit":
+                    return typeof(bool);
+                case "date":
+                case "datetime":
+                case "datetime2":
+                    return typeof(DateTime);
+                case "datetimeoffset":
+                    return typeof(DateTimeOffset);
+                case "tinyint":
+                    return typeof(Byte);
+                case "float":
+                    return typeof(double);
+                case "real":
+                    return typeof(Single);
+                case "time":
+                    return typeof(TimeSpan);
+                case "uniqueidentifier":
+                    return typeof(Guid);
+                default:
+                    return typeof(object);
+            }        
+    }
+    protected string ParseTsType(string dbType){
+            switch (dbType)
+            {
+                case "text":
+                case "ntext":
+                case "char":
+                case "nchar":
+                case "varchar":
+                case "nvarchar":
+                    return "string";
+
+                case "decimal":
+                case "money":
+                case "numeric":
+                case "smallmoney":
+                case "int":
+                case "smallint":
+                case "bigint":
+                    return "number";
+                                
+                case "bit":
+                    return "boolean";
+
+                case "timestamp":
+                case "rowversion":
+                case "binary":
+                case "varbinary":
+                case "image":
+                    return "any";
+
+                case "date":
+                case "datetime":
+                case "datetime2":
+                    return "any";
+
+                case "datetimeoffset":
+                    return "any";
+
+                case "tinyint":
+                    return "number";
+
+                case "float":
+                case "real":
+                    return "number";
+                case "time":
+                    return "any";
+                case "uniqueidentifier":
+                    return "any";
+                default:
+                    return "any";
+            }        
+    }    
+
+    protected DataRow[] GetSchema(){
+        return Table.Select($"Catalog = '{Catalog}' AND Schema = '{Schema}' AND TableOrViewName = '{Name}'");
+    }
+
+    readonly static System.Text.RegularExpressions.Regex reg = new System.Text.RegularExpressions.Regex(@"[^\p{Ll}\p{Lu}\p{Lt}\p{Lo}\p{Nd}\p{Nl}\p{Mn}\p{Mc}\p{Cf}\p{Pc}\p{Lm}]", System.Text.RegularExpressions.RegexOptions.Compiled);
+    protected string SafeString(string s)
+    {
+        var value = s;
+        var provider = Microsoft.CSharp.CSharpCodeProvider.CreateProvider("C#");
+        bool isValid = provider.IsValidIdentifier(value);
+
+        if (!isValid)
+        {
+            value = reg.Replace(value, "");
+        }
+        if (!char.IsLetter(value, 0))
+        {
+            value = "_" + value;
+        }
+        return value;
+    }
+}
+
+public const string SqlCatalog = @"
+	select
+		T1.TABLE_CATALOG	as [Catalog]
+		,T1.TABLE_SCHEMA	as [Schema]
+		,T1.TABLE_NAME		as [TableOrViewName]
+		,T3.name			as [ExrtendetKey]
+		,T3.value			as [ExrtendetValue]
+	from
+		INFORMATION_SCHEMA.TABLES T1
+	inner join
+		sysobjects T2 on T1.TABLE_NAME = T2.name
+	left join
+		sys.extended_properties T3 on T2.id = T3.major_id and T3.minor_id = 0
+	order by 1, 2, 3";
+
+const string SqlSchema = @"
+select
+     TBL.TABLE_CATALOG	as [Catalog]
+    ,TBL.TABLE_SCHEMA	as [Schema]
+    ,TBL.TABLE_NAME	as [TableOrViewName]
+    ,COL.name			as [ColumnName]
+    ,COL.column_id		as [ColumnID]
+    ,EXT.name			as [ExrtendetKey]
+    ,EXT.value			as [ExrtendetValue]
+    ,COL.is_nullable	as [IsNullable]
+    ,INFO.DATA_TYPE	as [DataType]
+    ,INFO.CHARACTER_MAXIMUM_LENGTH as [CharLength]
+    ,INFO.NUMERIC_PRECISION		as [Presision]
+    ,INFO.NUMERIC_SCALE			as [Scale]
+    ,CASE (
+		select COUNT(*)
+		from sys.index_columns T1
+		inner join sys.indexes T2 on T1.object_id = T2.object_id AND T1.index_id = T2.index_id
+		where T1.object_id = COL.object_id AND T1.column_id = COL.column_id AND T2.is_primary_key = 1
+		) 
+	WHEN 0 THEN 0
+	ELSE 1
+    END as [IsPrimary],
+	COLUMNPROPERTY (OBJECT_ID(TBL.TABLE_NAME),COLUMN_NAME ,'IsIdentity')  IsIdentityColumn
+from
+    INFORMATION_SCHEMA.TABLES TBL
+inner join
+    sysobjects OBJ on TBL.TABLE_NAME = OBJ.name
+inner join
+    sys.columns COL on COL.object_id = OBJ.id
+inner join
+    INFORMATION_SCHEMA.COLUMNS INFO on INFO.TABLE_CATALOG = TBL.TABLE_CATALOG 
+								AND INFO.TABLE_SCHEMA = TBL.TABLE_SCHEMA
+								AND INFO.TABLE_NAME = TBL.TABLE_NAME
+left join
+    sys.extended_properties EXT on COL.object_id = EXT.major_id AND COL.column_id = EXT.minor_id AND EXT.class=1
+where
+    COL.name = INFO.COLUMN_NAME
+order by 1,2,3,5
+";
+
+
+#>

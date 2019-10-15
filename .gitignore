@@ -347,3 +347,10 @@ healthchecksdb
 
 # Backup folder for Package Reference Convert tool in Visual Studio 2017
 MigrationBackup/
+package-lock.json
+
+/*.js
+/*.d.ts
+
+/T4/*.js
+/T4/*.d.ts
